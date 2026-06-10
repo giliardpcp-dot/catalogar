@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trader DG - Damião Gomes</title>
+    <style>
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(135deg, #1e1b4b, #2575fc);
+            color: #fff;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 750px;
+            margin: 0 auto;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            padding: 25px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+            text-align: center;
+        }
+        h1 { font-size: 26px; margin-bottom: 20px; text-transform: uppercase; letter-spacing: 1px; }
+        
+        .banca-panel {
+            display: flex;
+            justify-content: space-around;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        .banca-box span { font-size: 11px; color: #cbd5e1; display: block; }
+        .banca-box strong { font-size: 18px; }
+
+        .setup-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            text-align: left;
+            margin-bottom: 20px;
+        }
+        .block { background: rgba(0, 0, 0, 0.15); padding: 15px; border-radius: 8px; }
+        .block h3 { margin-top: 0; font-size: 14px; color: #ff6f61; border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 5px; }
+        
+        label { display: block; font-size: 12px; margin: 8px 0 4px 0; }
+        input[type="text"], input[type="password"], input[type="number"], select {
+            width: 100%; padding: 8px; background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); border-radius: 5px; color: #fff; box-sizing: border-box;
+        }
+        
+        button {
+            display: block; width: 100%; padding: 12px; border: none; border-radius: 8px; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 15px; color: #fff;
+        }
+        .btn-blue { background: #2563eb; }
+        .btn-orange { background: #ff6f61; }
+
+        .signals-container { margin-top: 20px; max-height: 250px; overflow-y: auto; }
+        .signal { background: rgba(255, 255, 255, 0.15); padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .call { border-left: 6px solid #2ecc71; }
+        .put { border-left: 6px solid #e74c3c; }
+        
+        .alert-banner { background: #e74c3c; padding: 12px; border-radius: 8px; font-weight: bold; margin-bottom: 15px; display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>Trader DG - Automatizador Cloud</h1>
+
+    <div id="lockBanner" class="alert-banner"></div>
+
+    <div class="banca-panel">
+        <div class="banca-box"><span>Banca Inicial</span><strong id="b-inicial">R$ 0,00</strong></div>
+        <div class="banca-box"><span>Banca Atual</span><strong id="b-atual">R$ 0,00</strong></div>
+        <div class="banca-box"><span>Resultado Relatório</span><strong id="b-lucro">R$ 0,00</strong></div>
+    </div>
+
+    <div class="setup-grid">
+        <div class="block">
+            <h3>🔑 Credenciais de Acesso</h3>
+            <label>E-mail IQ Option</label>
+            <input type="text" id="email" placeholder="seu_email@provedor.com">
+            <label>Senha</label>
+            <input type="password" id="password" placeholder="••••••••">
+            <label>Ambiente</label>
+            <select id="ambiente">
+                <option value="PRACTICE">Conta Treinamento</option>
+                <option value="REAL">Conta Real</option>
+            </select>
+        </div>
+        <div class="block">
+            <h3>⚙️ Gerenciamento e Filtros</h3>
+            <div style="display:flex; gap:10px;">
+                <div><label>Stop Win (R$)</label><input type="number" id="stop_win" value="50"></div>
+                <div><label>Stop Loss (R$)</label><input type="number" id="stop_loss" value="20"></div>
+            </div>
+            <div style="display:flex; gap:10px;">
+                <div><label>Assertividade Mínima (%)</label><input type="number" id="min_pct" value="80"></div>
+                <div><label>Valor Entrada (R$)</label><input type="number" id="val_ent" value="2"></div>
+            </div>
+            <label>Timeframe</label>
+            <select id="tf">
+                <option value="1">M1</option>
+                <option value="5">M5</option>
+                <option value="15">M15</option>
+            </select>
+            <label style="margin-top:10px;"><input type="checkbox" id="run_trade"> Realizar Entradas Automáticas</label>
+        </div>
+    </div>
+
+    <button id="btnConnect" class="btn-blue">Autenticar e Sincronizar Banca</button>
+    <button id="btnStart" class="btn-orange" style="display:none;">Ligar Análise em Segundo Plano</button>
+
+    <div class="signals-container" id="signals"></div>
+</div>
+
+<script>
+    let processLoop = null;
+    
+    // CONFIGURAÇÃO DA SUA URL CLOUD DO PYTHONANYWHERE
+    const SEU_APELIDO_CLOUD = "giliardpcp"; 
+    const PATH_API = `https://${SEU_APELIDO_CLOUD}.pythonanywhere.com`;
+
+    const soundWin = new Audio('https://actions.google.com/sounds/v1/alarms/digital_watch_alarm_long.ogg');
+    const soundLoss = new Audio('https://actions.google.com/sounds/v1/alarms/mechanical_clock_ringin_buzz.ogg');
+
+    document.getElementById('btnConnect').addEventListener('click', function() {
+        const load = {
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+            ambiente: document.getElementById('ambiente').value
+        };
+        this.innerText = "Conectando ao Servidor Cloud...";
+        
+        fetch(`${PATH_API}/conectar`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(load)
+        })
+        .then(res => res.json())
+        .then(data => {
+            if(data.erro){ alert(data.erro); this.innerText = "Autenticar e Sincronizar Banca"; return; }
+            document.getElementById('b-inicial').innerText = "R$ " + data.banca_inicial.toFixed(2);
+            document.getElementById('b-atual').innerText = "R$ " + data.banca_atual.toFixed(2);
+            this.innerText = "Sincronizado com Sucesso!";
+            this.style.background = "#059669";
+            document.getElementById('btnStart').style.display = "block";
+        })
+        .catch(() => { alert("Verifique se digitou o seu Apelido corretamente no código HTML."); this.innerText = "Autenticar e Sincronizar Banca"; });
+    });
+
+    document.getElementById('btnStart').addEventListener('click', function() {
+        if(processLoop) {
+            clearInterval(processLoop); processLoop = null;
+            this.innerText = "Ligar Análise em Segundo Plano"; this.style.background = "#ff6f61";
+            return;
+        }
+        this.innerText = "Análise Ativa na Nuvem [DESLIGAR]"; this.style.background = "#dc2626";
+        executarCicloNuvem();
+        processLoop = setInterval(executarCicloNuvem, 20000); // Roda de forma lenta a cada 20 segundos
+    });
+
+    function executarCicloNuvem() {
+        const payload = {
+            email: document.getElementById('email').value,
+            password: document.getElementById('password').value,
+            ambiente: document.getElementById('ambiente').value,
+            timeframe: document.getElementById('tf').value,
+            porcentagem_minima: document.getElementById('min_pct').value,
+            valor_entrada: document.getElementById('val_ent').value,
+            executar_entrada: document.getElementById('run_trade').checked,
+            stop_win: document.getElementById('stop_win').value,
+            stop_loss: document.getElementById('stop_loss').value
+        };
+
+        fetch(`${PATH_API}/analisar-e-operar`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(payload)
+        })
+        .then(res => res.json())
+        .then(sinal => {
+            if(sinal.erro_gerenciamento) {
+                clearInterval(processLoop); processLoop = null;
+                const banner = document.getElementById('lockBanner');
+                banner.innerText = sinal.erro_gerenciamento; banner.style.display = "block";
+                if(sinal.lucro_perda > 0) banner.style.background = "#059669";
+                document.getElementById('btnStart').innerText = "Ligar Análise em Segundo Plano";
+                document.getElementById('btnStart').style.background = "#ff6f61";
+                return;
+            }
+            if(sinal.erro) return;
+
+            document.getElementById('b-atual').innerText = "R$ " + sinal.banca_atual.toFixed(2);
+            const rGeral = document.getElementById('b-lucro');
+            rGeral.innerText = "R$ " + sinal.lucro_perda.toFixed(2);
+            rGeral.style.color = sinal.lucro_perda >= 0 ? "#2ecc71" : "#e74c3c";
+
+            if(sinal.resultado_trade === "WIN") soundWin.play();
+            if(sinal.resultado_trade === "LOSS") soundLoss.play();
+
+            const container = document.getElementById('signals');
+            const item = document.createElement('div');
+            item.className = `signal ${sinal.direcao.toLowerCase()}`;
+            item.innerHTML = `
+                <div style="text-align:left;">
+                    <strong>${sinal.ativo} [${sinal.timeframe}]</strong> - P: ${sinal.probabilidade}<br>
+                    <small>Horário Local: ${sinal.horario} | Ação: ${sinal.status_operacao}</small>
+                </div>
+                <div style="text-align:right;">
+                    <strong style="color:${sinal.direcao==='CALL'?'#2ecc71':'#e74c3c'}">${sinal.direcao}</strong>
+                    <div style="font-size:11px; font-weight:bold; margin-top:2px;">${sinal.resultado_trade}</div>
+                </div>
+            `;
+            container.prepend(item);
+        });
+    }
+</script>
+</body>
+</html>
